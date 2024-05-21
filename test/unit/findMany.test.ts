@@ -52,6 +52,7 @@ describe("findMany", () => {
         id: 1,
         deleted: false,
       },
+
     });
   });
 
@@ -70,6 +71,7 @@ describe("findMany", () => {
       where: {
         deleted: false,
       },
+
     });
   });
 
@@ -88,6 +90,7 @@ describe("findMany", () => {
       where: {
         deleted: false,
       },
+
     });
   });
 
@@ -109,6 +112,7 @@ describe("findMany", () => {
         id: 1,
         deleted: true,
       },
+
     });
   });
 });

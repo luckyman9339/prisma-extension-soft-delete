@@ -54,6 +54,7 @@ describe("findUnique", () => {
         id: 1,
         deleted: false,
       },
+
     });
     expect(client.user.findUnique).not.toHaveBeenCalled();
   });

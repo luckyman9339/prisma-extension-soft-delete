@@ -11,6 +11,7 @@
     "build:esm": "tsc -p tsconfig.esm.json",
     "test:unit": "prisma generate && jest --config jest.config.unit.js",
     "test:e2e": "./test/scripts/run-with-postgres.sh jest --config jest.config.e2e.js --runInBand",
+    "test:e2e-win": "jest --config jest.config.e2e.js --runInBand",
     "test": "./test/scripts/run-with-postgres.sh jest --runInBand",
     "lint": "eslint ./src  --fix --ext .ts",
     "typecheck": "npm run build:cjs -- --noEmit && npm run build:esm -- --noEmit",
@@ -24,7 +25,8 @@
   "keywords": [
     "prisma",
     "client",
-    "middleware"
+    "middleware",
+    "softdelete"
   ],
   "author": "Olivier Wilkinson",
   "license": "Apache-2.0",

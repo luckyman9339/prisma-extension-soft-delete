@@ -52,6 +52,7 @@ describe("findFirstOrThrow", () => {
         id: 1,
         deleted: false,
       },
+
     });
   });
 
@@ -68,6 +69,7 @@ describe("findFirstOrThrow", () => {
       where: {
         deleted: false,
       },
+
     });
   });
 
@@ -84,6 +86,7 @@ describe("findFirstOrThrow", () => {
       where: {
         deleted: false,
       },
+
     });
   });
 
@@ -102,6 +105,7 @@ describe("findFirstOrThrow", () => {
     // params have not been modified
     expect(client.user.findFirstOrThrow).toHaveBeenCalledWith({
       where: { id: 1, deleted: true },
+
     });
   });
 });

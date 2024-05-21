@@ -55,6 +55,7 @@ describe("findFirst", () => {
         id: 1,
         deleted: false,
       },
+
     });
   });
 
@@ -71,6 +72,7 @@ describe("findFirst", () => {
       where: {
         deleted: false,
       },
+
     });
   });
 
@@ -87,6 +89,7 @@ describe("findFirst", () => {
       where: {
         deleted: false,
       },
+
     });
   });
 
@@ -108,6 +111,7 @@ describe("findFirst", () => {
         id: 1,
         deleted: true,
       },
+
     });
   });
 });
