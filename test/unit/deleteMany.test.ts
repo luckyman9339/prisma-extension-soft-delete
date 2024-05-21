@@ -74,7 +74,7 @@ describe("deleteMany", () => {
     );
 
     await extendedClient.user.deleteMany({
-      where: { id: 1 },
+      where: { id: 1, deleted: false },
     });
 
     // params are modified correctly
@@ -131,7 +131,7 @@ describe("deleteMany", () => {
       data: {
         posts: {
           deleteMany: {
-            id: 1,
+            id: 1
           },
         },
       },

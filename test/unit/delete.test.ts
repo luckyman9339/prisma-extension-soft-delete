@@ -95,7 +95,7 @@ describe("delete", () => {
 
     // params are modified correctly
     expect(client.user.update).toHaveBeenCalledWith({
-      where: { id: 1 },
+      where: { id: 1, deleted: false },
       data: { deleted: true },
     });
   });
@@ -133,7 +133,7 @@ describe("delete", () => {
     );
 
     await extendedClient.user.update({
-      where: { id: 1 },
+      where: { id: 1, deleted: false },
       data: {
         profile: { delete: true },
       },
@@ -141,7 +141,7 @@ describe("delete", () => {
 
     // params are modified correctly
     expect(client.user.update).toHaveBeenCalledWith({
-      where: { id: 1 },
+      where: { id: 1, deleted: false },
       data: {
         profile: { update: { deleted: true } },
       },
@@ -157,21 +157,21 @@ describe("delete", () => {
     );
 
     await extendedClient.user.update({
-      where: { id: 1 },
+      where: { id: 1, deleted: false },
       data: {
         posts: {
-          delete: { id: 1 },
+          delete: { id: 1, deleted: false },
         },
       },
     });
 
     // params are modified correctly
     expect(client.user.update).toHaveBeenCalledWith({
-      where: { id: 1 },
+      where: { id: 1, deleted: false },
       data: {
         posts: {
           update: {
-            where: { id: 1 },
+            where: { id: 1, deleted: false },
             data: { deleted: true },
           },
         },
@@ -202,9 +202,9 @@ describe("delete", () => {
       data: {
         posts: {
           update: [
-            { where: { id: 1 }, data: { deleted: true } },
-            { where: { id: 2 }, data: { deleted: true } },
-            { where: { id: 3 }, data: { deleted: true } },
+            { where: { id: 1, deleted: false }, data: { deleted: true } },
+            { where: { id: 2, deleted: false }, data: { deleted: true } },
+            { where: { id: 3, deleted: false }, data: { deleted: true } },
           ],
         },
       },

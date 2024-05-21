@@ -50,6 +50,13 @@ type MockOperations<M extends Prisma.ModelName> = {
   count: jest.MockedFn<DelegateByModel<M>["count"]>;
 };
 
+type AllModelsOperations = {
+  forceDelete: jest.MockedFn<any>;
+  withTrashed: jest.MockedFn<any>;
+  onlyTrashed: jest.MockedFn<any>;
+  withTrashedRelated: jest.MockedFn<any>;
+};
+
 function initModel(callbacks: Partial<{ [key in Operation]: jest.Mock }> = {}) {
   return operations.reduce<any>((acc, operation) => {
     acc[operation] = callbacks[operation] || jest.fn(() => null);
@@ -62,6 +69,7 @@ export class MockClient {
   profile: MockOperations<"Profile">;
   post: MockOperations<"Post">;
   comment: MockOperations<"Comment">;
+  $allModels: AllModelsOperations;
 
   ext: {
     model: {
@@ -69,26 +77,41 @@ export class MockClient {
       profile?: MockOperations<"Profile">;
       post?: MockOperations<"Post">;
       comment?: MockOperations<"Comment">;
+      $allModels: AllModelsOperations;
     };
   };
 
   constructor(
     callbacks: Partial<
-      { [key in Model]: Partial<{ [opKey in Operation]: jest.Mock }> }
+      { [key in Model]: Partial<{ [opKey in Operation]: jest.Mock }> } &
+      { $allModels: Partial<AllModelsOperations> }
     > = {}
   ) {
     this.user = initModel(callbacks.user);
     this.profile = initModel(callbacks.profile);
     this.post = initModel(callbacks.post);
     this.comment = initModel(callbacks.comment);
+    this.$allModels = {
+      forceDelete: callbacks.$allModels?.forceDelete || jest.fn(() => null),
+      withTrashed: callbacks.$allModels?.withTrashed || jest.fn(() => this),
+      onlyTrashed: callbacks.$allModels?.onlyTrashed || jest.fn(() => this),
+      withTrashedRelated: callbacks.$allModels?.withTrashedRelated || jest.fn(() => this),
+    };
     this.ext = {
       model: {
         user: initModel(),
         profile: initModel(),
         post: initModel(),
         comment: initModel(),
+        $allModels: {
+          forceDelete: jest.fn(() => null),
+          withTrashed: jest.fn(() => this),
+          onlyTrashed: jest.fn(() => this),
+          withTrashedRelated: jest.fn(() => this),
+        }
       },
     };
+
   }
 
   $extends(extension: any) {
@@ -100,33 +123,38 @@ export class MockClient {
     const newClient = new MockClient();
 
     Object.keys(ext.model || {}).forEach((model) => {
-      const modelName = model as keyof MockClient["ext"]["model"];
-      if (!models.includes(modelName)) {
-        throw new Error(`Invalid model name in mock client ${modelName}`);
+      const modelName = (model as keyof MockClient["ext"]["model"]);
+
+      if (modelName === "$allModels") {
+        Object.keys(ext.model.$allModels).forEach((operation) => {
+          this.$allModels[operation as keyof AllModelsOperations] = jest.fn(ext.model.$allModels[operation]);
+        });
+      } else {
+        if (!models.includes(modelName)) {
+          throw new Error(`Invalid model name in mock client ${modelName}`);
+        }
+        newClient.ext.model[modelName] = Object.keys(ext.model[modelName]).reduce<
+          any
+        >((acc, operation) => {
+          acc[operation] = jest.fn(ext.model[modelName][operation]);
+          return acc;
+        }, {});
+        Object.keys(newClient[modelName]).forEach((operation) => {
+          newClient[modelName][operation as Operation].mockImplementation(
+            // @ts-ignore
+            (args) => {
+              const hook = newClient.ext.model[modelName as Model]?.[
+                operation as Operation
+              ];
+
+              if (!hook)
+                throw new Error(`No hook found for ${model}.${operation}`);
+
+              return hook(args as any);
+            }
+          );
+        });
       }
-
-      newClient.ext.model[modelName] = Object.keys(ext.model[modelName]).reduce<
-        any
-      >((acc, operation) => {
-        acc[operation] = jest.fn(ext.model[modelName][operation]);
-        return acc;
-      }, {});
-
-      Object.keys(newClient[modelName]).forEach((operation) => {
-        newClient[modelName][operation as Operation].mockImplementation(
-          // @ts-ignore
-          (args) => {
-            const hook = newClient.ext.model[modelName as Model]?.[
-              operation as Operation
-            ];
-
-            if (!hook)
-              throw new Error(`No hook found for ${model}.${operation}`);
-
-            return hook(args as any);
-          }
-        );
-      });
     });
 
     return newClient;
@@ -144,6 +172,9 @@ export class MockClient {
           this.ext.model[model as Model]?.[operation as Operation].mockReset();
         });
       }
+    });
+    Object.keys(this.$allModels).forEach((operation) => {
+      this.$allModels[operation as keyof AllModelsOperations].mockReset();
     });
   }
 }

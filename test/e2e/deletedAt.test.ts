@@ -169,7 +169,6 @@ describe("deletedAt", () => {
         },
       },
     });
-
-    expect(userProfile).toBeNull();
+    expect(userProfile).toBeNull()
   });
 });

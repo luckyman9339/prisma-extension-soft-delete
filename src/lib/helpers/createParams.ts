@@ -1,11 +1,15 @@
 import { Prisma } from "@prisma/client";
 import { NestedParams } from "prisma-extension-nested-operations";
 
-import { ModelConfig } from "../types";
+import { ItemType, ModelConfig } from "../types";
 import { addDeletedToSelect } from "../utils/nestedReads";
 
 const uniqueFieldsByModel: Record<string, string[]> = {};
 const uniqueIndexFieldsByModel: Record<string, string[]> = {};
+
+function isEmptyObject(obj: any): boolean {
+  return Object.keys(obj).length === 0 && obj.constructor === Object;
+}
 
 Prisma.dmmf.datamodel.models.forEach((model) => {
   // add unique fields derived from indexes
@@ -36,11 +40,78 @@ export type CreateParamsReturn = {
 
 export type CreateParams = (
   config: ModelConfig,
-  params: Params
+  params: Params,
 ) => CreateParamsReturn;
 
+const getInclude = (config: ModelConfig, params: any) => {
+  let include = {}
+
+  if (isEmptyObject(config.nestModels)) {
+    include = params.args?.include || {}
+  } else {
+    Object.keys(config.nestModels || {}).forEach(item => {
+      const key = item as ItemType
+      Object.keys(params.args?.include || {}).forEach(model => {
+        const where = params.args?.include[model]?.where || {}
+        if (model.toLowerCase().includes(key.toLowerCase())) {
+          if (config.nestModels![key]) {
+            include = { ...include, [model]: { where } }
+          } else {
+            include = { ...include, [model]: { where: { ...where, [config.field]: config.createValue(false) } } }
+          }
+        }
+      })
+    })
+  }
+
+  return include
+}
+
+const getWhere = (config: ModelConfig, params: any) => {
+  const args = params.args || {};
+  let where = args?.where || {};
+
+  switch (config.queryOption) {
+    case "all":
+      break
+    case "only":
+      where = {
+        ...where,
+        [config.field]: { not: config.createValue(false) }
+      }
+      break
+    default: // except
+      where = {
+        ...where,
+        [config.field]: where[config.field] || config.createValue(false)
+      }
+  }
+  return where
+}
+
+const getNewWhere = (config: ModelConfig, where: any) => {
+  let newWhere = {}
+  switch (config.queryOption) {
+    case "all":
+      newWhere = { ...where }
+      break
+    case "only":
+      newWhere = {
+        ...where,
+        [config.field]: { not: config.createValue(false) }
+      }
+      break
+    default: // except
+      newWhere = {
+        ...where,
+        [config.field]: config.createValue(false)
+      }
+  }
+  return newWhere
+}
+
 export const createDeleteParams: CreateParams = (
-  { field, createValue },
+  config,
   params
 ) => {
   if (
@@ -59,23 +130,26 @@ export const createDeleteParams: CreateParams = (
     return {
       params: {
         ...params,
-        operation: "update",
+        operation: config.forceDelete ? "delete" : "update",
         args: {
           __passUpdateThrough: true,
-          [field]: createValue(true),
+          [config.field]: config.createValue(true),
         },
       },
     };
   }
 
+  let where = params.args?.where || params.args;
+  where = getNewWhere(config, where)
+
   return {
     params: {
       ...params,
-      operation: "update",
+      operation: config.forceDelete ? "delete" : "update",
       args: {
-        where: params.args?.where || params.args,
+        where,
         data: {
-          [field]: createValue(true),
+          [config.field]: config.createValue(true),
         },
       },
     },
@@ -85,23 +159,34 @@ export const createDeleteParams: CreateParams = (
 export const createDeleteManyParams: CreateParams = (config, params) => {
   if (!params.model) return { params };
 
-  const where = params.args?.where || params.args;
+  let where = params.args?.where || params.args;
 
-  return {
-    params: {
-      ...params,
-      operation: "updateMany",
-      args: {
-        where: {
-          ...where,
-          [config.field]: config.createValue(false),
-        },
-        data: {
-          [config.field]: config.createValue(true),
+  where = getNewWhere(config, where)
+
+  if (config.forceDelete) {
+    return {
+      params: {
+        ...params,
+        operation: "deleteMany",
+        args: {
+          where
+        }
+      }
+    }
+  } else {
+    return {
+      params: {
+        ...params,
+        operation: "updateMany",
+        args: {
+          where,
+          data: {
+            [config.field]: config.createValue(true),
+          },
         },
       },
-    },
-  };
+    };
+  }
 };
 
 export const createUpdateParams: CreateParams = (config, params) => {
@@ -170,6 +255,7 @@ function validateFindUniqueParams(params: Params, config: ModelConfig): void {
   }
 }
 
+
 function shouldPassFindUniqueParamsThrough(
   params: Params,
   config: ModelConfig
@@ -196,27 +282,26 @@ function shouldPassFindUniqueParamsThrough(
   );
 }
 
+//checked
 export const createFindUniqueParams: CreateParams = (config, params) => {
   if (shouldPassFindUniqueParamsThrough(params, config)) {
     return { params };
   }
 
   validateFindUniqueParams(params, config);
+  const where = getWhere(config, params);
+  const include = getInclude(config, params);
+  const args = { ...params.args, where, ...(isEmptyObject(include) ? {} : { include }) };
 
   return {
     params: {
       ...params,
       operation: "findFirst",
-      args: {
-        ...params.args,
-        where: {
-          ...params.args?.where,
-          [config.field]: config.createValue(false),
-        },
-      },
+      args,
     },
   };
 };
+
 
 export const createFindUniqueOrThrowParams: CreateParams = (config, params) => {
   if (shouldPassFindUniqueParamsThrough(params, config)) {
@@ -225,89 +310,72 @@ export const createFindUniqueOrThrowParams: CreateParams = (config, params) => {
 
   validateFindUniqueParams(params, config);
 
+  const where = getWhere(config, params)
+  const include = getInclude(config, params)
+  const args = { ...params.args, where, ...(isEmptyObject(include) ? {} : { include }) };
+
   return {
     params: {
       ...params,
       operation: "findFirstOrThrow",
-      args: {
-        ...params.args,
-        where: {
-          ...params.args?.where,
-          [config.field]: config.createValue(false),
-        },
-      },
+      args
     },
   };
 };
 
 export const createFindFirstParams: CreateParams = (config, params) => {
+  const where = getWhere(config, params)
+  const include = getInclude(config, params)
+  const args = { ...params.args, where, ...(isEmptyObject(include) ? {} : { include }) };
+
   return {
     params: {
       ...params,
       operation: "findFirst",
-      args: {
-        ...params.args,
-        where: {
-          ...params.args?.where,
-          // allow overriding the deleted field in where
-          [config.field]:
-            params.args?.where?.[config.field] || config.createValue(false),
-        },
-      },
+      args
     },
   };
 };
 
 export const createFindFirstOrThrowParams: CreateParams = (config, params) => {
+  const where = getWhere(config, params)
+  const include = getInclude(config, params)
+  const args = { ...params.args, where, ...(isEmptyObject(include) ? {} : { include }) };
+
   return {
     params: {
       ...params,
       operation: "findFirstOrThrow",
-      args: {
-        ...params.args,
-        where: {
-          ...params.args?.where,
-          // allow overriding the deleted field in where
-          [config.field]:
-            params.args?.where?.[config.field] || config.createValue(false),
-        },
-      },
+      args
     },
   };
 };
 
+// Checked
 export const createFindManyParams: CreateParams = (config, params) => {
+  const where = getWhere(config, params)
+  const include = getInclude(config, params)
+
   return {
     params: {
       ...params,
       operation: "findMany",
-      args: {
-        ...params.args,
-        where: {
-          ...params.args?.where,
-          // allow overriding the deleted field in where
-          [config.field]:
-            params.args?.where?.[config.field] || config.createValue(false),
-        },
-      },
+      args: { ...params.args, where, ...(isEmptyObject(include) ? {} : { include }) }
     },
   };
 };
 
 /*GroupBy */
 export const createGroupByParams: CreateParams = (config, params) => {
+  const where = getWhere(config, params)
+
   return {
     params: {
       ...params,
       operation: "groupBy",
       args: {
         ...params.args,
-        where: {
-          ...params.args?.where,
-          // allow overriding the deleted field in where
-          [config.field]:
-            params.args?.where?.[config.field] || config.createValue(false),
-        },
+        where
       },
     },
   };
@@ -315,18 +383,14 @@ export const createGroupByParams: CreateParams = (config, params) => {
 
 export const createCountParams: CreateParams = (config, params) => {
   const args = params.args || {};
-  const where = args.where || {};
+  const where = getWhere(config, params)
 
   return {
     params: {
       ...params,
       args: {
         ...args,
-        where: {
-          ...where,
-          // allow overriding the deleted field in where
-          [config.field]: where[config.field] || config.createValue(false),
-        },
+        where,
       },
     },
   };
@@ -334,18 +398,14 @@ export const createCountParams: CreateParams = (config, params) => {
 
 export const createAggregateParams: CreateParams = (config, params) => {
   const args = params.args || {};
-  const where = args.where || {};
+  const where = getWhere(config, params)
 
   return {
     params: {
       ...params,
       args: {
         ...args,
-        where: {
-          ...where,
-          // allow overriding the deleted field in where
-          [config.field]: where[config.field] || config.createValue(false),
-        },
+        where
       },
     },
   };
@@ -369,42 +429,13 @@ export const createWhereParams: CreateParams = (config, params) => {
     };
   }
 
-  return {
-    params: {
-      ...params,
-      args: {
-        ...params.args,
-        [config.field]: params.args[config.field] || config.createValue(false),
-      },
-    },
-  };
-};
-
-export const createIncludeParams: CreateParams = (config, params) => {
-  // includes of toOne relation cannot filter deleted records using params
-  // instead ensure that the deleted field is selected and filter the results
-  if (params.scope?.relations?.to.isList === false) {
-    if (params.args?.select && !params.args?.select[config.field]) {
-      return {
-        params: addDeletedToSelect(params, config),
-        ctx: { deletedFieldAdded: true },
-      };
-    }
-
-    return { params };
-  }
+  const where = getNewWhere(config, params.args)
 
   return {
     params: {
       ...params,
       args: {
-        ...params.args,
-        where: {
-          ...params.args?.where,
-          // allow overriding the deleted field in where
-          [config.field]:
-            params.args?.where?.[config.field] || config.createValue(false),
-        },
+        ...where
       },
     },
   };
@@ -428,18 +459,16 @@ export const createSelectParams: CreateParams = (config, params) => {
     return { params };
   }
 
+  const where = getWhere(config, params)
+
   return {
     params: {
       ...params,
       args: {
         ...params.args,
-        where: {
-          ...params.args?.where,
-          // allow overriding the deleted field in where
-          [config.field]:
-            params.args?.where?.[config.field] || config.createValue(false),
-        },
+        where
       },
     },
   };
 };
+

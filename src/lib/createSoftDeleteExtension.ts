@@ -1,4 +1,5 @@
-import { Prisma } from "@prisma/client";
+import { Prisma, PrismaClient } from "@prisma/client";
+
 import {
   NestedOperation,
   withNestedOperations,
@@ -13,7 +14,6 @@ import {
   createFindManyParams,
   createFindUniqueParams,
   createFindUniqueOrThrowParams,
-  createIncludeParams,
   createSelectParams,
   createUpdateManyParams,
   createUpdateParams,
@@ -23,8 +23,9 @@ import {
   CreateParams,
 } from "./helpers/createParams";
 
-import { Config, ModelConfig } from "./types";
+import { Config, ItemType, ModelConfig } from "./types";
 import { ModifyResult, modifyReadResult } from "./helpers/modifyResult";
+
 
 type ConfigBound<F> = F extends (x: ModelConfig, ...args: infer P) => infer R
   ? (...args: P) => R
@@ -44,7 +45,9 @@ const rootOperations = [
   "count",
   "aggregate",
   "groupBy",
+  "create"
 ] as const;
+
 
 export function createSoftDeleteExtension({
   models,
@@ -53,6 +56,10 @@ export function createSoftDeleteExtension({
     createValue: Boolean,
     allowToOneUpdates: false,
     allowCompoundUniqueIndexWhere: false,
+    queryOption: "except",
+    nestModels: {
+    },
+    forceDelete: false
   },
 }: Config) {
   if (!defaultConfig.field) {
@@ -81,6 +88,7 @@ export function createSoftDeleteExtension({
     Record<string, Record<string, ConfigBound<CreateParams> | undefined>>
   >((acc, model) => {
     const config = modelConfig[model as Prisma.ModelName]!;
+
     return {
       ...acc,
       [model]: {
@@ -97,7 +105,6 @@ export function createSoftDeleteExtension({
         count: createCountParams.bind(null, config),
         aggregate: createAggregateParams.bind(null, config),
         where: createWhereParams.bind(null, config),
-        include: createIncludeParams.bind(null, config),
         select: createSelectParams.bind(null, config),
         groupBy: createGroupByParams.bind(null, config),
       },
@@ -117,86 +124,141 @@ export function createSoftDeleteExtension({
     };
   }, {});
 
-  return Prisma.defineExtension((client) =>
-    client.$extends({
+  return Prisma.defineExtension((client) => {
+    return client.$extends({
       name: "prisma-extension-soft-delete",
-      model: Prisma.dmmf.datamodel.models
-        .map((modelDef) => modelDef.name)
-        .reduce(function (modelsAcc, configModelName) {
-          const modelName =
-            configModelName[0].toLowerCase() + configModelName.slice(1);
+      model: {
+        ...Prisma.dmmf.datamodel.models
+          .map((modelDef) => modelDef.name)
+          .reduce(function (modelsAcc, configModelName) {
+            const modelName =
+              configModelName[0].toLowerCase() + configModelName.slice(1);
 
-          return {
-            ...modelsAcc,
-            [modelName]: rootOperations.reduce(function (
-              opsAcc,
-              rootOperation
-            ) {
-              return {
-                ...opsAcc,
-                [rootOperation]: function (args: any) {
-                  const $allOperations = withNestedOperations({
-                    async $rootOperation(initialParams) {
-                      const createParams =
-                        createParamsByModel[initialParams.model]?.[
+            return {
+              ...modelsAcc,
+              [modelName]: rootOperations.reduce(function (
+                opsAcc,
+                rootOperation
+              ) {
+                return {
+                  ...opsAcc,
+                  [rootOperation]: function (args: any) {
+                    const $allOperations = withNestedOperations({
+                      async $rootOperation(initialParams) {
+                        const createParams =
+                          createParamsByModel[initialParams.model]?.[
                           initialParams.operation
-                        ];
+                          ];
 
-                      if (!createParams)
-                        return initialParams.query(initialParams.args);
+                        if (!createParams)
+                          return initialParams.query(initialParams.args);
 
-                      const { params, ctx } = createParams(initialParams);
+                        const { params, ctx } = createParams(initialParams);
 
+                        // @ts-expect-error - we don't know what the client is
+                        const result = await client[modelName][params.operation](
+                          params.args
+                        );
+
+                        modelConfig[configModelName as Prisma.ModelName]!.forceDelete = false
+                        modelConfig[configModelName as Prisma.ModelName]!.nestModels = {}
+                        modelConfig[configModelName as Prisma.ModelName]!.queryOption = "except"
+
+                        const modifyResult =
+                          modifyResultByModel[params.model]?.[params.operation];
+
+                        if (!modifyResult) return result;
+
+                        return modifyResult(result, params, ctx);
+                      },
+                      async $allNestedOperations(initialParams) {
+                        const createParams =
+                          createParamsByModel[initialParams.model]?.[
+                          initialParams.operation
+                          ];
+
+                        if (!createParams)
+                          return initialParams.query(initialParams.args);
+
+                        const { params, ctx } = createParams(initialParams);
+
+                        const result = await params.query(
+                          params.args,
+                          params.operation as NestedOperation
+                        );
+
+                        const modifyResult =
+                          modifyResultByModel[params.model]?.[params.operation];
+
+                        if (!modifyResult) return result;
+
+                        return modifyResult(result, params, ctx);
+                      },
+                    });
+
+                    return $allOperations({
+                      model: configModelName as any,
+                      operation: rootOperation,
                       // @ts-expect-error - we don't know what the client is
-                      const result = await client[modelName][params.operation](
-                        params.args
-                      );
+                      query: client[modelName][rootOperation],
+                      args,
+                    });
+                  },
+                };
+              },
+                {}),
+            };
+          }, {}),
+        $allModels: {
+          forceDelete: function (args: any): any {
+            const where = args?.where || {}
+            const context = Prisma.getExtensionContext(this)
+            const modelName = context.$name as Prisma.ModelName;
+            modelConfig[modelName]!.forceDelete = true
+            return (context as any).deleteMany({ where })
+          },
+          withTrashed: function (): any {
+            const context = Prisma.getExtensionContext(this);
+            const modelName = context.$name as Prisma.ModelName;
+            modelConfig[modelName]!.queryOption = "all"
+            return context
+          },
+          onlyTrashed: function () {
+            const context = Prisma.getExtensionContext(this);
+            const modelName = context.$name as Prisma.ModelName;
+            modelConfig[modelName]!.queryOption = "only"
+            return context
+          },
+          withTrashedRelated: function (nestedModels: {
+            [key in Prisma.ModelName]?: boolean
+          }) {
+            const context = Prisma.getExtensionContext(this);
+            const modelName = context.$name as Prisma.ModelName;
+            const modelFields = Prisma.dmmf.datamodel.models.find(model => model.name === modelName)?.fields;
 
-                      const modifyResult =
-                        modifyResultByModel[params.model]?.[params.operation];
+            const isIncludeModel = (model: Prisma.ModelName) => {
+              const items = modelFields?.filter(field => field.type === model)
+              if (items && items?.length > 0) {
+                return !!items[0].relationToFields?.length
+              } else {
+                return false
+              }
+            }
 
-                      if (!modifyResult) return result;
+            Object.keys(nestedModels).forEach((item) => {
+              const key = item as ItemType
 
-                      return modifyResult(result, params, ctx);
-                    },
-                    async $allNestedOperations(initialParams) {
-                      const createParams =
-                        createParamsByModel[initialParams.model]?.[
-                          initialParams.operation
-                        ];
+              if (modelConfig[modelName] && modelConfig[modelName]!.nestModels && isIncludeModel(key)) {
+                modelConfig[modelName]!.nestModels![key] = nestedModels[key] === true;
+              }
+            });
+            return context
+          },
 
-                      if (!createParams)
-                        return initialParams.query(initialParams.args);
-
-                      const { params, ctx } = createParams(initialParams);
-
-                      const result = await params.query(
-                        params.args,
-                        params.operation as NestedOperation
-                      );
-
-                      const modifyResult =
-                        modifyResultByModel[params.model]?.[params.operation];
-
-                      if (!modifyResult) return result;
-
-                      return modifyResult(result, params, ctx);
-                    },
-                  });
-
-                  return $allOperations({
-                    model: configModelName as any,
-                    operation: rootOperation,
-                    // @ts-expect-error - we don't know what the client is
-                    query: client[modelName][rootOperation],
-                    args,
-                  });
-                },
-              };
-            },
-            {}),
-          };
-        }, {}),
+        } as const
+      }
     })
+  }
+
   );
 }

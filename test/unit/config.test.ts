@@ -43,6 +43,8 @@ describe("config", () => {
 
   it("allows setting default config values", async () => {
     const deletedAt = new Date();
+    const content1 = faker.lorem.sentence()
+    const content2 = faker.lorem.sentence()
     const client = new MockClient();
     const extendedClient = client.$extends(
       createSoftDeleteExtension({
@@ -65,8 +67,8 @@ describe("config", () => {
         },
         comments: {
           updateMany: {
-            where: { content: faker.lorem.sentence() },
-            data: { content: faker.lorem.sentence() },
+            where: { content: content1 },
+            data: { content: content2 },
           },
         },
       },
@@ -76,15 +78,15 @@ describe("config", () => {
       where: { id: 1 },
       data: {
         posts: {
-          update: { where: { id: 1 }, data: { deletedAt } },
+          update: { where: { id: 1, deletedAt }, data: { deletedAt } },
         },
         comments: {
           updateMany: {
             where: {
-              content: expect.any(String),
+              content: content1,
               deletedAt,
             },
-            data: { content: expect.any(String) },
+            data: { content: content2 },
           },
         },
       },
@@ -125,6 +127,8 @@ describe("config", () => {
 
   it("allows setting model specific config values", async () => {
     const deletedAt = new Date();
+    const content1 = faker.lorem.sentence()
+    const content2 = faker.lorem.sentence()
     const client = new MockClient();
     const extendedClient = client.$extends(
       createSoftDeleteExtension({
@@ -144,8 +148,8 @@ describe("config", () => {
         posts: { delete: { id: 1 } },
         comments: {
           updateMany: {
-            where: { content: faker.lorem.sentence() },
-            data: { content: faker.lorem.sentence() },
+            where: { content: content1 },
+            data: { content: content2 },
           },
         },
       },
@@ -155,12 +159,12 @@ describe("config", () => {
       where: { id: 1 },
       data: {
         posts: {
-          update: { where: { id: 1 }, data: { deletedAt: expect.any(Date) } },
+          update: { where: { id: 1, deletedAt }, data: { deletedAt } },
         },
         comments: {
           updateMany: {
-            where: { deleted: false, content: expect.any(String) },
-            data: { content: expect.any(String) },
+            where: { deleted: false, content: content1, },
+            data: { content: content2 },
           },
         },
       },
@@ -169,6 +173,8 @@ describe("config", () => {
 
   it("allows overriding default config values", async () => {
     const deletedAt = new Date();
+    const content1 = faker.lorem.sentence()
+    const content2 = faker.lorem.sentence()
     const client = new MockClient();
     const extendedClient = client.$extends(
       createSoftDeleteExtension({
@@ -195,8 +201,8 @@ describe("config", () => {
         posts: { delete: { id: 1 } },
         comments: {
           updateMany: {
-            where: { content: faker.lorem.sentence() },
-            data: { content: faker.lorem.sentence() },
+            where: { content: content1 },
+            data: { content: content2 },
           },
         },
       },
@@ -206,12 +212,12 @@ describe("config", () => {
       where: { id: 1 },
       data: {
         posts: {
-          update: { where: { id: 1 }, data: { deletedAt } },
+          update: { where: { id: 1, deletedAt: null }, data: { deletedAt } },
         },
         comments: {
           updateMany: {
-            where: { deleted: false, content: expect.any(String) },
-            data: { content: expect.any(String) },
+            where: { deleted: false, content: content1 },
+            data: { content: content2 },
           },
         },
       },
